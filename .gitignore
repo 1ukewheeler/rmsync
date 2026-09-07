@@ -1,0 +1,7 @@
+# Never commit synced documents.
+Remarkable/
+*.pdf
+*.epub
+*.part
+__pycache__/
+.DS_Store
