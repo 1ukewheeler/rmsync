@@ -45,6 +45,7 @@ swiftc -O -swift-version 5 -framework Cocoa -o rmsyncbar RMSyncBar.swift
 | Colour | State |
 |---|---|
 | dim grey | tablet not connected |
+| orange | tablet present but USB web interface wedged - toggle it |
 | normal label colour | tablet connected, idle |
 | blue | syncing |
 | green | last sync succeeded |
@@ -56,6 +57,32 @@ Quit. Output goes to `~/Library/Logs/rmsync.log`.
 It deliberately does **not** implement syncing — it runs `rmsync.py`, which
 remains the single definition of what a sync is. It finds the script next to
 its own binary, so moving the folder needs no edit.
+
+### Readiness is an HTTP 200, not an open port
+
+The interface reaches a state where it **accepts TCP connections on port 80 but
+never answers a request** - curl reports 408, then plain timeouts, while the
+port reads as open the whole time. It does not recover on its own (verified
+over a 60s silent period); it needs USB file access toggled off and on.
+
+So a TCP connect is not a readiness signal. `rmsyncbar` sends a real
+`GET / HTTP/1.0` and requires a `200`. Both signals together are what make the
+orange state possible: TCP open + no HTTP answer is precisely "wedged, go
+toggle it", which is actionable in a way that "not connected" is not.
+
+### The probe uses a raw socket, not URLSession
+
+Deliberate. CFNetwork was observed timing out against `10.11.99.1` in the same
+seconds that `curl` fetched the page in 5ms, with identical request headers.
+Plain BSD sockets follow the routing table to the tablet over `en7`. The probe
+is ~50 lines of `socket`/`connect`/`send`/`recv` and behaves like curl does.
+
+### Exit 3 is not a failure
+
+If another rmsync holds the lock, the child exits 3. That is the lock working -
+a terminal run, or a sync started before the app was restarted - so the app
+reports "another sync already running", stays blue, and retries in 30s rather
+than flashing red.
 
 ### Connect detection is debounced, on purpose
 
