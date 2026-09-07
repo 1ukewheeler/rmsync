@@ -30,6 +30,84 @@ reasons:
 
 rmsync talks only to the tablet's USB web interface at `10.11.99.1`.
 
+## Menu bar app
+
+`rmsyncbar` is a native macOS menu bar indicator (Swift, Cocoa, no runtime
+dependencies). It shows **RM** in the menu bar, coloured by state, and starts a
+sync when the tablet appears on USB.
+
+```bash
+swiftc -O -swift-version 5 -framework Cocoa -o rmsyncbar RMSyncBar.swift
+./rmsyncbar              # auto-sync on connect
+./rmsyncbar --no-auto    # start with auto-sync off
+```
+
+| Colour | State |
+|---|---|
+| dim grey | tablet not connected |
+| normal label colour | tablet connected, idle |
+| blue | syncing |
+| green | last sync succeeded |
+| red | last sync failed |
+
+Menu: Sync Now, Sync When Connected (toggle), Open Remarkable Folder, Open Log,
+Quit. Output goes to `~/Library/Logs/rmsync.log`.
+
+It deliberately does **not** implement syncing — it runs `rmsync.py`, which
+remains the single definition of what a sync is. It finds the script next to
+its own binary, so moving the folder needs no edit.
+
+### Connect detection is debounced, on purpose
+
+The USB web interface stops answering for a while when the tablet is busy
+rendering a large document. A naive "port open?" check therefore sees an unplug
+and re-plug, and would start a redundant sync mid-render.
+
+`rmsyncbar` polls every 5s and requires **2 consecutive good polls to consider
+the tablet connected, but 3 consecutive failures to consider it gone.** The
+asymmetry is what stops a mid-render blip from looking like a reconnect. A sync
+fires only on the transition into connected, once per connection.
+
+### One sync at a time
+
+`rmsync.py` takes an exclusive `flock` on `~/.rmsync.lock` and exits with
+status 3 if another instance holds it, so the menu bar app, a terminal run and
+any scheduled run cannot collide.
+
+## Start it at login
+
+Save as `~/Library/LaunchAgents/com.lukewheeler.rmsyncbar.plist`, adjusting the
+path, then load it:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lukewheeler.rmsyncbar</string>
+    <key>ProgramArguments</key>
+    <array><string>/Users/YOU/rmsync/rmsyncbar</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key>
+    <dict><key>SuccessfulExit</key><false/></dict>
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/Library/Logs/rmsyncbar.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/Library/Logs/rmsyncbar.err.log</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.lukewheeler.rmsyncbar.plist
+launchctl print gui/$UID/com.lukewheeler.rmsyncbar | head    # verify
+```
+
+`KeepAlive`/`SuccessfulExit=false` restarts it if it crashes but respects Quit
+from the menu.
+
 ## Design: discovery over stored config
 
 There is **no manifest, catalog, or state file**. Every run rediscovers reality:

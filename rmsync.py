@@ -21,6 +21,7 @@ comes back; change a notebook on the tablet and it re-downloads.
 
 import argparse
 import datetime as dt
+import fcntl
 import json
 import mimetypes
 import os
@@ -35,6 +36,7 @@ BASE = "http://10.11.99.1"
 DEST = os.path.expanduser("~/NotesDev/Remarkable")
 MTIME_SLACK = 2.0        # seconds; filesystem timestamp rounding
 UPLOADABLE = (".pdf", ".epub")
+LOCKFILE = os.path.expanduser("~/.rmsync.lock")
 
 OFFLINE_HELP = """\
 Tablet is not answering on %s.
@@ -47,6 +49,22 @@ Things that make this happen, in the order worth checking:
   3. The Mac has no 10.11.99.x address: check `ifconfig | grep 10.11.99`.
 
 Nothing was changed.""" % BASE
+
+
+def acquire_lock():
+    """One sync at a time.
+
+    The menu bar app, a cron entry and a hand-run terminal can all invoke this
+    script; two of them fetching the same documents at once would just fight
+    over the tablet. Held for the life of the process, released on exit.
+    """
+    f = open(LOCKFILE, "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return None
+    return f
 
 
 def parse_time(s):
@@ -283,6 +301,11 @@ def main():
     ap.add_argument("--retries", type=int, default=2,
                     help="retries per document (default: 2)")
     args = ap.parse_args()
+
+    lock = acquire_lock()
+    if lock is None:
+        print("Another rmsync is already running; leaving it alone.")
+        return 3
 
     if not reachable():
         print(OFFLINE_HELP)
