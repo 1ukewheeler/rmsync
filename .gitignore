@@ -5,3 +5,6 @@ Remarkable/
 *.part
 __pycache__/
 .DS_Store
+
+# Compiled binary - build it with swiftc, do not commit it.
+rmsyncbar
