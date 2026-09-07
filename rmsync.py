@@ -162,9 +162,9 @@ def download(doc, path):
 def post_upload(path):
     """POST one file as multipart/form-data.
 
-    Returns the HTTP status. NOTE: the tablet returns 201 'Upload successful'
-    even for files xochitl then silently discards, so the status is not
-    evidence of anything. Callers must verify against the listing.
+    Returns the HTTP status. The tablet gives no destination control and the
+    file may land in any folder, so a 201 does not tell you where it went.
+    Callers must verify by walking the whole tree, not just the root.
     """
     boundary = "----rmsync" + uuid.uuid4().hex
     ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
@@ -228,9 +228,10 @@ def do_download(docs, args):
 def do_upload(docs, args):
     """Push local files that have no counterpart on the tablet.
 
-    Uploads always land in the tablet's ROOT folder: the web interface has no
-    API for choosing a destination folder, so local subfolders are not
-    reproduced. Files are matched by name, never by path.
+    The destination folder cannot be chosen or predicted: observed uploads
+    landed in the tablet's currently-open folder, not reliably in root. Local
+    subfolders are therefore not reproduced, and files are matched by name
+    only, never by path.
     """
     on_tablet = {key(os.path.basename(d["rel"])) for d in docs}
     todo = [p for p in find_local()
@@ -254,7 +255,8 @@ def do_upload(docs, args):
         except Exception as e:
             print("[%d/%d] FAIL %s: %s" % (i, len(todo), label, e))
 
-    # The 201 proves nothing. Re-read the tablet and see what is really there.
+    # A 201 does not say where the file went. Re-walk every folder to find it;
+    # checking only the root reports successful uploads as missing.
     print("\n   verifying against the tablet ...")
     time.sleep(5)
     after, _ = walk()
@@ -262,7 +264,7 @@ def do_upload(docs, args):
     ok = [p for p in sent if key(os.path.basename(p)) in now]
     lost = [p for p in sent if key(os.path.basename(p)) not in now]
     for p in lost:
-        print("   REJECTED by tablet (silently discarded): %s" % p[len(DEST) + 1:])
+        print("   NOT FOUND anywhere on tablet after upload: %s" % p[len(DEST) + 1:])
     return len(ok), len(lost)
 
 
@@ -274,7 +276,8 @@ def main():
     ap.add_argument("--force", action="store_true",
                     help="re-download every document, ignoring timestamps")
     ap.add_argument("--upload", action="store_true",
-                    help="also push local-only files to the tablet root")
+                    help="also push local-only files (destination folder is "
+                         "chosen by the tablet, not by rmsync)")
     ap.add_argument("--no-download", action="store_true",
                     help="skip the download pass (use with --upload)")
     ap.add_argument("--retries", type=int, default=2,

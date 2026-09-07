@@ -69,22 +69,25 @@ Endpoints on `http://10.11.99.1`:
 
 Three things worth knowing, each of which cost time to work out:
 
-### 1. `201 Upload successful` is not proof of anything
+### 1. Uploads land in a folder you did not choose
 
-The tablet returns
+The upload endpoint takes no destination parameter, and the file does **not**
+reliably land in the root folder. Two test uploads made minutes apart, with
+identical requests, ended up in different places:
 
-```json
-{"status":"Upload successful"}
-```
+| File | Landed in |
+|---|---|
+| `rmsync-upload-test.pdf` | `/Textbooks/` |
+| `rmsync-real-test.pdf` | root |
 
-with HTTP 201 **even for files xochitl then silently discards.** A deliberately
-minimal hand-built PDF returned 201 and never appeared in the listing; a real
-PDF returned the identical 201 and did appear. There is no error, no log, no
-difference in the response.
+The most likely explanation is that the file goes to whichever folder the
+tablet currently has open, but that was not confirmed, and there is no way to
+control or query it over the web interface. **Treat the destination folder as
+unpredictable.**
 
-`rmsync --upload` therefore treats the status code as meaningless and re-reads
-the listing afterward, reporting anything the tablet threw away as `REJECTED by
-tablet (silently discarded)`.
+The practical consequence: after uploading, you must search the whole tree to
+find the file. `rmsync --upload` verifies by re-walking every folder, not by
+checking the root — a root-only check reports successful uploads as missing.
 
 ### 2. The port refuses connections until USB file access is re-toggled
 
@@ -99,17 +102,13 @@ back on**.
 A refusal means the network path is fine and nothing is listening, which rules
 out cables, routing, and firewalls.)
 
-### 3. Uploads always land in the root folder
+### 3. Notebooks and the extension mismatch
 
-The web interface exposes no way to choose a destination folder, so local
-subfolders are not reproduced on the tablet. rmsync matches files by **name**,
-never by path, and skips any local file whose name already exists anywhere on
-the tablet.
-
-This also means notebooks need care: a notebook is `Physics` on the tablet but
-`Physics.pdf` on disk, so the extension is stripped on both sides before
-comparing. Without that, every downloaded notebook looks local-only and gets
-uploaded back as a duplicate PDF.
+A notebook is `Physics` on the tablet but `Physics.pdf` on disk, so the
+extension is stripped on both sides before comparing. Without that, every
+downloaded notebook looks local-only and gets uploaded back as a duplicate PDF.
+rmsync matches by **name only**, never by path, since paths cannot be relied on
+across the upload boundary.
 
 ## Limitations
 
@@ -117,8 +116,10 @@ uploaded back as a duplicate PDF.
   files come down as PDF, not as the original epub. The interface only serves
   rendered output.
 - **Not true bidirectional sync.** The web API has no delete or rename
-  endpoint, so deletions and renames do not propagate in either direction.
+  endpoint, so deletions and renames do not propagate in either direction, and
+  rmsync cannot remove a file from the tablet — that must be done on-device.
   Deleting a document on the tablet while its local copy remains means
   `--upload` will push it back. Use `--dry-run` first.
-- **Upload is additive only**, and only for `.pdf` and `.epub`.
+- **Upload is additive only**, and only for `.pdf` and `.epub`. You cannot
+  choose the destination folder; see above.
 - The tablet must be plugged in with USB file access on.
